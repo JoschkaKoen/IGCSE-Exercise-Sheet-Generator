@@ -74,6 +74,44 @@ def find_ms_answer_pages(doc):
     return answer_pages
 
 
+def _collect_header_rows(doc, answer_pages):
+    """Return a dict {page_index: [(y_top, y_bottom), ...]} for every landscape
+    'Question / Answer / Marks' header row found on each answer page.
+
+    Cambridge IGCSE mark schemes repeat this header row not only at the top of each
+    page (y ≈ 55–68 pt) but also between question groups within a page.  These
+    repeated headers must be excluded from answer strips.
+    """
+    result = {}
+    for pi in answer_pages:
+        page = doc[pi]
+        if page.rect.height >= MS_LANDSCAPE_H_THRESHOLD_PT:
+            result[pi] = []
+            continue
+        rows = []
+        for b in page.get_text("dict")["blocks"]:
+            if b["type"] != 0:
+                continue
+            for line in b["lines"]:
+                text = "".join(s["text"] for s in line["spans"]).strip()
+                x0 = line["bbox"][0]
+                if text == "Question" and x0 < 100:
+                    rows.append((line["bbox"][1], line["bbox"][3]))
+        result[pi] = sorted(rows, key=lambda h: h[0])
+    return result
+
+
+def _cap_y_end_before_headers(y_start, y_end, header_rows_for_page):
+    """Return y_end capped just before the first header row that lies inside
+    (y_start, y_end).  The top-of-page header (y_start is already set to skip
+    it) is never a problem; only mid-page repeated headers matter.
+    """
+    for h_top, _h_bot in header_rows_for_page:
+        if y_start < h_top < y_end:
+            return h_top - 2
+    return y_end
+
+
 def find_ms_answer_regions(doc, requested_questions):
     """Find answer regions in a structured mark scheme."""
     answer_pages = find_ms_answer_pages(doc)
@@ -81,6 +119,9 @@ def find_ms_answer_regions(doc, requested_questions):
     if not answer_pages:
         print("  Warning: No answer table pages found in mark scheme.")
         return []
+
+    # Pre-collect repeated header row positions so we can exclude them from strips.
+    page_header_rows = _collect_header_rows(doc, answer_pages)
 
     all_entries = []
 
@@ -153,15 +194,32 @@ def find_ms_answer_regions(doc, requested_questions):
         y_end = min(y_end, _y_end_cap(doc[last_page]))
 
         if first_page == last_page:
+            # For single-page questions y_start is the correct lower bound.
+            y_end = _cap_y_end_before_headers(
+                y_start, y_end, page_header_rows.get(last_page, [])
+            )
             regions.append((qnum, first_page, y_start, y_end))
         else:
             first_y_end = min(doc[first_page].rect.height - 30, _y_end_cap(doc[first_page]))
+            # Cap first-page y_end (repeated header may appear after the first entry).
+            first_y_end = _cap_y_end_before_headers(
+                y_start, first_y_end, page_header_rows.get(first_page, [])
+            )
             regions.append((qnum, first_page, y_start, first_y_end))
             for mid_p in range(first_page + 1, last_page):
                 if mid_p in answer_pages:
                     mid_ys = _mid_y_start(doc[mid_p])
                     mid_ye = min(doc[mid_p].rect.height - 30, _y_end_cap(doc[mid_p]))
+                    mid_ye = _cap_y_end_before_headers(
+                        mid_ys, mid_ye, page_header_rows.get(mid_p, [])
+                    )
                     regions.append((qnum, mid_p, mid_ys, mid_ye))
-            regions.append((qnum, last_page, _mid_y_start(doc[last_page]), y_end))
+            # For the last page of a multi-page question, use last_ys (not first-page
+            # y_start) as the lower bound so the header-cap check works correctly.
+            last_ys = _mid_y_start(doc[last_page])
+            y_end = _cap_y_end_before_headers(
+                last_ys, y_end, page_header_rows.get(last_page, [])
+            )
+            regions.append((qnum, last_page, last_ys, y_end))
 
     return regions
