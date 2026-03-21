@@ -14,6 +14,8 @@ from .config import (
     MS_LANDSCAPE_H_THRESHOLD_PT,
     MS_LANDSCAPE_MARGIN_PT,
     MS_MARKS_START_PT,
+    MS_PORTRAIT_MARKS_START_PT,
+    MS_PORTRAIT_TABLE_LEFT_PT,
     MS_TABLE_LEFT_PT,
     QR_MARGIN_ZONE_PT,
     QR_MAX_SIZE_PT,
@@ -28,6 +30,7 @@ from .fonts import (
     pil_font,
     pil_font_bold,
 )
+from .mark_scheme import detect_landscape_ms_crop_x, detect_portrait_ms_crop_x
 
 
 def scale_and_page_dims():
@@ -125,10 +128,47 @@ def blank_qr_codes_on_page(img: Image.Image, page: fitz.Page, scale: float) -> N
             draw.rectangle([bx0, by0, bx1, by1], fill=(255, 255, 255))
 
 
-def collect_strips_from_regions(doc, regions):
+def _trim_trailing_whitespace(strip: Image.Image, keep_gap_px: int) -> Image.Image:
+    """Remove all-white rows from the bottom of a strip, keeping keep_gap_px rows
+    below the last non-white row so borders and baselines aren't clipped."""
+    w, h = strip.size
+    if h <= keep_gap_px:
+        return strip
+    gray = strip.convert("L")
+    pixels = gray.load()
+    sample_step = max(1, w // 60)
+    last_content = -1
+    for y in range(h - 1, -1, -1):
+        for x in range(0, w, sample_step):
+            if pixels[x, y] < 250:
+                last_content = y
+                break
+        if last_content >= 0:
+            break
+    if last_content < 0:
+        return strip
+    new_h = min(h, last_content + keep_gap_px + 1)
+    if new_h < h:
+        return strip.crop((0, 0, w, new_h))
+    return strip
+
+
+def collect_strips_from_regions(doc, regions, is_ms: bool = False):
     """Rasterize regions to image strips (one continuous list for layout)."""
     scale, page_width_px, _ = scale_and_page_dims()
     separator_height = int(8 * scale)
+
+    # Auto-detect MS table crop x positions from the document's drawings so
+    # that the Answer/Marks border is included for every subject/year variant.
+    landscape_crop_x = MS_MARKS_START_PT
+    portrait_crop_x = MS_PORTRAIT_MARKS_START_PT
+    if is_ms:
+        detected_l = detect_landscape_ms_crop_x(doc)
+        if detected_l is not None:
+            landscape_crop_x = detected_l
+        detected_p = detect_portrait_ms_crop_x(doc)
+        if detected_p is not None:
+            portrait_crop_x = detected_p
 
     rendered_pages = {}
     needed_pages = set(r[1] for r in regions)
@@ -152,8 +192,9 @@ def collect_strips_from_regions(doc, regions):
         py_end = max(py_start + 1, min(py_end, img.height))
 
         if page_h_pt < MS_LANDSCAPE_H_THRESHOLD_PT:
+            # Landscape mark-scheme page (842×595 pt native landscape).
             x0_px = max(0, int(MS_TABLE_LEFT_PT * scale))
-            x1_px = min(img.width, int(MS_MARKS_START_PT * scale))
+            x1_px = min(img.width, int(landscape_crop_x * scale))
             strip_raw = img.crop((x0_px, py_start, x1_px, py_end))
 
             margin_px = int(MS_LANDSCAPE_MARGIN_PT * scale)
@@ -164,7 +205,17 @@ def collect_strips_from_regions(doc, regions):
                 strip_raw = strip_raw.resize((content_w, new_h), Image.LANCZOS)
             strip = Image.new("RGB", (page_width_px, strip_raw.height), (255, 255, 255))
             strip.paste(strip_raw, (margin_px, 0))
+        elif is_ms:
+            # Portrait mark-scheme page: crop to table content (excluding Marks
+            # column) and centre on the output page without scaling.
+            x0_px = max(0, int(MS_PORTRAIT_TABLE_LEFT_PT * scale))
+            x1_px = min(img.width, int(portrait_crop_x * scale))
+            strip_raw = img.crop((x0_px, py_start, x1_px, py_end))
+            x_paste = max(0, (page_width_px - strip_raw.width) // 2)
+            strip = Image.new("RGB", (page_width_px, strip_raw.height), (255, 255, 255))
+            strip.paste(strip_raw, (x_paste, 0))
         else:
+            # Portrait question-paper page.
             l_px, r_px, t_px = insets_for_strip(y_start, page_h_pt, scale)
 
             w = img.width
@@ -186,6 +237,12 @@ def collect_strips_from_regions(doc, regions):
                 ratio = page_width_px / strip.width
                 new_h = int(strip.height * ratio)
                 strip = strip.resize((page_width_px, new_h), Image.LANCZOS)
+
+            # Trim blank rows at the bottom so that answer-writing space from
+            # one source page doesn't push the next sub-question onto a new
+            # output page.  Keep a 40 pt buffer so bottom borders aren't clipped.
+            keep_px = int(40 * scale)
+            strip = _trim_trailing_whitespace(strip, keep_px)
 
         if current_qnum is not None and qnum != current_qnum:
             strips.append(Image.new("RGB", (page_width_px, separator_height), (255, 255, 255)))
@@ -282,7 +339,7 @@ def layout_strips_to_pdf(strips, output_path, header_label: str | None = None):
     pages = []
     current_page, y_cursor = new_canvas()
 
-    for item in strips:
+    for _strip_idx, item in enumerate(strips):
         if isinstance(item, str):
             current_paper_label = item
             if y_cursor == initial_y_cursor:
@@ -290,12 +347,30 @@ def layout_strips_to_pdf(strips, output_path, header_label: str | None = None):
             else:
                 lbl_strip = section_title_strip(item)
                 sh = lbl_strip.height
-                if y_cursor + sh > page_height_px - margin_px:
+                label_gap = int(6 * scale)  # breathing room after label
+                # Peek at the next image strip to prevent orphaned labels:
+                # if the label fits but the next content doesn't, start a new page.
+                next_sh = 0
+                for future in strips[_strip_idx + 1:]:
+                    if isinstance(future, Image.Image):
+                        # Use the full strip height so the check is accurate.
+                        # If the strip is taller than a full page (will be
+                        # chunked anyway), require only a minimum visible
+                        # portion so the label is never left alone.
+                        if future.height <= usable_height:
+                            next_sh = future.height
+                        else:
+                            next_sh = int(200 * scale)
+                        break
+                needs_new_page = (
+                    y_cursor + sh + label_gap + next_sh > page_height_px - margin_px
+                )
+                if y_cursor + sh > page_height_px - margin_px or needs_new_page:
                     pages.append(current_page)
                     current_page, y_cursor = new_canvas()
                 else:
                     current_page.paste(lbl_strip, (h_center_x(lbl_strip.width, page_width_px), y_cursor))
-                    y_cursor += sh
+                    y_cursor += sh + label_gap
             continue
 
         strip = item
@@ -313,6 +388,20 @@ def layout_strips_to_pdf(strips, output_path, header_label: str | None = None):
                         available = page_height_px - margin_px - y_cursor
 
                     chunk_h = min(remaining, available)
+                    # Smart cut: if not the last chunk, scan back for a white row
+                    # so we don't cut through a border line.
+                    if chunk_h < remaining:
+                        lookback = int(40 * scale)
+                        if chunk_h > lookback:
+                            gray = strip.convert("L")
+                            pxls = gray.load()
+                            step = max(1, strip.width // 60)
+                            cut = src_y + chunk_h
+                            for row in range(cut, max(src_y + 1, cut - lookback), -1):
+                                if all(pxls[x, row] >= 250 for x in range(0, strip.width, step)):
+                                    chunk_h = row - src_y
+                                    break
+                            del gray, pxls
                     chunk = strip.crop((0, src_y, strip.width, src_y + chunk_h))
                     current_page.paste(chunk, (h_center_x(chunk.width, page_width_px), y_cursor))
                     y_cursor += chunk_h
@@ -346,9 +435,10 @@ def layout_strips_to_pdf(strips, output_path, header_label: str | None = None):
     print(f"  Saved: {output_path}")
 
 
-def render_regions_to_pdf(doc, regions, output_path, header_label: str | None = None):
+def render_regions_to_pdf(doc, regions, output_path, header_label: str | None = None,
+                          is_ms: bool = False):
     """Render regions and assemble into an A4 output PDF."""
-    strips = collect_strips_from_regions(doc, regions)
+    strips = collect_strips_from_regions(doc, regions, is_ms=is_ms)
     layout_strips_to_pdf(strips, output_path, header_label)
 
 

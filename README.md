@@ -73,6 +73,7 @@ run_extraction_jobs(
 | `extract_exercises.py` | Thin CLI entry point |
 | `extract_exercises/` | Package: config, question detection, raster layout, mark schemes, NL resolver, pipeline |
 | `exams/physics/`, `exams/computer_science/` | Bundled question paper & mark scheme PDFs for NL mode |
+| `fonts/lmroman10-*.otf` | Latin Modern Roman (LaTeX `lmodern` text) for raster labels; see `fonts/README.md` |
 
 ## License
 

@@ -75,16 +75,29 @@ MS_HEADER_BOTTOM_PT = 74.0
 
 # Left edge of the answer table (pt): crop away everything to the **left** (page margin,
 # “0625/41” label area). Raster crop starts at this x.
-MS_TABLE_LEFT_PT = 62.0
+MS_TABLE_LEFT_PT = 55.0
 
 # Left edge of the “Marks” column (pt): crop everything from this x **rightward** so the
 # Marks column is removed; content is ``MS_TABLE_LEFT_PT … MS_MARKS_START_PT``.
-MS_MARKS_START_PT = 737.0
+MS_MARKS_START_PT = 739.0
 
 # After cropping the table band, the bitmap is scaled to fit a content width of
 # ``page_width − 2 * MS_LANDSCAPE_MARGIN_PT`` (in **points**, then scaled like other pt).
 # This sets equal left/right **whitespace** on the output page, not the source crop.
 MS_LANDSCAPE_MARGIN_PT = 50.0
+
+# ---------------------------------------------------------------------------
+# Structured mark scheme — portrait table pages
+# ---------------------------------------------------------------------------
+# Used when ``page.rect.height >= MS_LANDSCAPE_H_THRESHOLD_PT`` AND the
+# document is a structured mark scheme (not a question paper).
+
+# Left x (pt) of the portrait mark-scheme table — crop everything to the left.
+MS_PORTRAIT_TABLE_LEFT_PT = 46.0
+
+# Right x (pt) where the Marks column begins on portrait MS pages — crop
+# everything from this x rightward so the Marks column is excluded.
+MS_PORTRAIT_MARKS_START_PT = 500.0
 
 # ---------------------------------------------------------------------------
 # QR blanking (before strip crop on rendered pages)

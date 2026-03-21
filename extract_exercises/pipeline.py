@@ -113,7 +113,7 @@ def run_extraction_jobs(jobs: list[dict], output_pdf: str, exam_key: str | None 
                 f"  Extracting mark scheme for questions {sorted(set(r[0] for r in ms_regions))} "
                 f"({len(ms_regions)} region(s))"
             )
-            mstrips = collect_strips_from_regions(ms_doc, ms_regions)
+            mstrips = collect_strips_from_regions(ms_doc, ms_regions, is_ms=True)
 
         ms_doc.close()
 

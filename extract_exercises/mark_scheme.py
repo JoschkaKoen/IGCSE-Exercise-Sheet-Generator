@@ -35,6 +35,82 @@ def _norm_bbox(page, bbox):
     return bbox
 
 
+def detect_landscape_ms_crop_x(doc) -> float | None:
+    """Auto-detect the x-coordinate to crop at for landscape MS pages.
+
+    Finds the x-position of the Answer/Marks column separator by locating the
+    rightmost wide-drawing x1 that lies strictly to the left of the 'Marks'
+    column-header text.  Returns that x + 2 pt (to fully include the border line),
+    or None if detection fails.
+    """
+    from .config import MS_LANDSCAPE_H_THRESHOLD_PT
+    for pi in range(len(doc)):
+        page = doc[pi]
+        if page.rect.height >= MS_LANDSCAPE_H_THRESHOLD_PT:
+            continue  # skip portrait pages
+        text = page.get_text()
+        if "Question" not in text or "Marks" not in text:
+            continue
+        marks_x = _find_marks_header_x(page)
+        if marks_x is None:
+            continue
+        crop_x = _rightmost_drawing_x1_before(page, marks_x)
+        if crop_x is not None:
+            return crop_x + 0.5
+    return None
+
+
+def detect_portrait_ms_crop_x(doc) -> float | None:
+    """Auto-detect the x-coordinate to crop at for portrait MS pages.
+
+    Same logic as ``detect_landscape_ms_crop_x`` but searches portrait pages.
+    """
+    from .config import MS_LANDSCAPE_H_THRESHOLD_PT
+    for pi in range(len(doc)):
+        page = doc[pi]
+        if page.rect.height < MS_LANDSCAPE_H_THRESHOLD_PT:
+            continue  # skip landscape pages
+        text = page.get_text()
+        if "Question" not in text or "Marks" not in text:
+            continue
+        marks_x = _find_marks_header_x(page)
+        if marks_x is None:
+            continue
+        crop_x = _rightmost_drawing_x1_before(page, marks_x)
+        if crop_x is not None:
+            return crop_x + 0.5
+    return None
+
+
+def _find_marks_header_x(page) -> float | None:
+    """Return the display-space x0 of the 'Marks' column header on *page*, or None."""
+    for b in page.get_text("dict")["blocks"]:
+        if b["type"] != 0:
+            continue
+        for line in b["lines"]:
+            t = "".join(s["text"] for s in line["spans"]).strip()
+            if t != "Marks":
+                continue
+            nx0, ny0, _, _ = _norm_bbox(page, line["bbox"])
+            if ny0 < 100:  # only the column header near the top
+                return nx0
+    return None
+
+
+def _rightmost_drawing_x1_before(page, marks_x: float) -> float | None:
+    """Return the largest drawing-rect x1 that is strictly less than *marks_x*,
+    considering only rects that are at least 30 pt wide in display space."""
+    best = None
+    for r in page.get_drawings():
+        dr = _norm_bbox(page, (r["rect"].x0, r["rect"].y0, r["rect"].x1, r["rect"].y1))
+        if dr[2] - dr[0] < 30:  # skip narrow elements
+            continue
+        if dr[2] < marks_x:
+            if best is None or dr[2] > best:
+                best = dr[2]
+    return best
+
+
 def detect_ms_type(doc):
     """Detect whether a mark scheme is MCQ or structured."""
     text = doc[0].get_text()
@@ -100,19 +176,17 @@ def find_ms_answer_pages(doc):
 
 
 def _collect_header_rows(doc, answer_pages):
-    """Return a dict {page_index: [(y_top, y_bottom), ...]} for every landscape
-    'Question / Answer / Marks' header row found on each answer page.
+    """Return a dict {page_index: [(y_top, y_bottom), ...]} for every
+    'Question / Answer / Marks' header row found on each answer page (works for
+    both landscape and portrait mark schemes).
 
     Cambridge IGCSE mark schemes repeat this header row not only at the top of each
-    page (y ≈ 55–68 pt) but also between question groups within a page.  These
-    repeated headers must be excluded from answer strips.
+    page but also between question groups within a page.  These repeated headers must
+    be excluded from answer strips.
     """
     result = {}
     for pi in answer_pages:
         page = doc[pi]
-        if page.rect.height >= MS_LANDSCAPE_H_THRESHOLD_PT:
-            result[pi] = []
-            continue
         rows = []
         for b in page.get_text("dict")["blocks"]:
             if b["type"] != 0:
@@ -142,27 +216,28 @@ def _cap_y_end_before_headers(y_start, y_end, header_rows_for_page):
     return y_end
 
 
-def _floor_y_start_below_headers(first_line_y, candidate_y_start, header_rows_for_page):
+def _floor_y_start_below_headers(first_line_y, candidate_y_start, header_rows_for_page,
+                                  separator_below_header_pt=5.65):
     """Raise ``y_start`` so the strip begins *below* any table header row that sits
     above the question's first line.
 
     Without this, the next question's region can start at ``first_line - 10pt`` and
     still include one scan line of the repeated 'Question / Answer / Marks' row that
     sits between questions (e.g. between Q7 and Q8).
+
+    ``separator_below_header_pt`` is the gap between the header text's bottom bbox
+    and the top cell-border of the next data row:
+    - Landscape MS: 5.65 pt (thick gray separator below header text, 5.64 pt tall)
+    - Portrait MS: ~3.0 pt (thin separator; calibrated from drawing y-coordinates)
     """
     y = candidate_y_start
     for h_top, h_bot in header_rows_for_page:
         if h_bot < first_line_y:
-            # +5 pt: clears the thick separator drawn below the header text
-            # (always 5.6 pt tall, ending at h_bot + ~5.6 pt) while landing
-            # just before the thin 0.8 pt cell-border that marks the top of the
-            # first data row.  The ~0.6 pt sliver of separator that remains is
-            # sub-pixel in the output and invisible.
-            y = max(y, h_bot + 5)
+            y = max(y, h_bot + separator_below_header_pt)
     return y
 
 
-def _tight_y_end(page, y_start, y_end_max):
+def _tight_y_end(page, y_start, y_end_max, trailing_gap_pt: float = 20):
     """Return y-bottom of the last visible text line on *page* that falls inside
     (y_start, y_end_max), plus a small trailing margin.
 
@@ -170,24 +245,27 @@ def _tight_y_end(page, y_start, y_end_max):
     before the footer — e.g. Q10 whose last answer is at y≈281 pt but whose
     computed y_end would otherwise reach the 540 pt footer cap, creating ~260 pt
     of blank space below the last answer row.
+
+    ``trailing_gap_pt`` should be 20 when a header-cap has already been applied
+    (safe: won't reach the next section's border) and 32 when no cap was active
+    (needed so Q3-style closing borders ≈30 pt below the last text are captured).
     """
     last_y = None
     for b in page.get_text("dict")["blocks"]:
         if b["type"] != 0:
             continue
         for line in b["lines"]:
-            y0, y1 = line["bbox"][1], line["bbox"][3]
-            x0 = line["bbox"][0]
-            if y0 <= y_start or y1 >= y_end_max:
+            nx0, ny0, nx1, ny1 = _norm_bbox(page, line["bbox"])
+            if ny0 <= y_start or ny1 >= y_end_max:
                 continue
-            if x0 < 55 or x0 > 810:
+            if nx0 < 55 or nx0 > 810:
                 continue
             t = "".join(s["text"] for s in line["spans"]).strip()
-            if t and (last_y is None or y1 > last_y):
-                last_y = y1
+            if t and (last_y is None or ny1 > last_y):
+                last_y = ny1
     if last_y is None:
         return y_end_max
-    return last_y + 15  # small trailing gap so the last row isn't clipped
+    return last_y + trailing_gap_pt  # trailing gap so the last cell-border line isn't clipped
 
 
 def find_ms_answer_regions(doc, requested_questions):
@@ -262,15 +340,14 @@ def find_ms_answer_regions(doc, requested_questions):
         first_page = first_entry[1]
         last_page = last_entry[1]
         is_landscape_page = doc[first_page].rect.height < MS_LANDSCAPE_H_THRESHOLD_PT
-        if is_landscape_page:
-            y_start = max(MS_HEADER_BOTTOM_PT, first_entry[2] - 10)
-            y_start = _floor_y_start_below_headers(
-                first_entry[2],
-                y_start,
-                page_header_rows.get(first_page, []),
-            )
-        else:
-            y_start = max(MS_HEADER_BOTTOM_PT, first_entry[2] - 5)
+        _sep = 5.65 if is_landscape_page else 3.0
+        y_start = max(MS_HEADER_BOTTOM_PT, first_entry[2] - 10)
+        y_start = _floor_y_start_below_headers(
+            first_entry[2],
+            y_start,
+            page_header_rows.get(first_page, []),
+            separator_below_header_pt=_sep,
+        )
 
         def _y_end_cap(page):
             return MS_FOOTER_TOP_PT if page.rect.height < MS_LANDSCAPE_H_THRESHOLD_PT else page.rect.height - 50
@@ -284,17 +361,27 @@ def find_ms_answer_regions(doc, requested_questions):
 
         if first_page == last_page:
             # For single-page questions y_start is the correct lower bound.
+            _y_end_raw = y_end
             y_end = _cap_y_end_before_headers(
                 y_start, y_end, page_header_rows.get(last_page, [])
             )
-            y_end = min(y_end, _tight_y_end(doc[first_page], y_start, y_end))
+            # When a header cap fired the trimmed region is already close to the
+            # next header; use a small trailing gap so the header's own top border
+            # line is not pulled in.  When no cap fired the closing table border
+            # may sit up to ~32 pt below the last text row (empty answer rows have
+            # borders but no text), so use a larger gap to capture it.
+            _tight_gap = 20 if y_end < _y_end_raw else 32
+            y_end = min(y_end, _tight_y_end(doc[first_page], y_start, y_end, _tight_gap))
             regions.append((qnum, first_page, y_start, y_end))
         else:
             first_y_end = min(doc[first_page].rect.height - 30, _y_end_cap(doc[first_page]))
             # Cap first-page y_end (repeated header may appear after the first entry).
+            _first_y_end_raw = first_y_end
             first_y_end = _cap_y_end_before_headers(
                 y_start, first_y_end, page_header_rows.get(first_page, [])
             )
+            _tight_gap_first = 20 if first_y_end < _first_y_end_raw else 32
+            first_y_end = min(first_y_end, _tight_y_end(doc[first_page], y_start, first_y_end, _tight_gap_first))
             regions.append((qnum, first_page, y_start, first_y_end))
             for mid_p in range(first_page + 1, last_page):
                 if mid_p in answer_pages:
@@ -302,12 +389,13 @@ def find_ms_answer_regions(doc, requested_questions):
                     on_mid = [e for e in q_entries if e[1] == mid_p]
                     if on_mid:
                         first_y_mid = min(e[2] for e in on_mid)
-                        if doc[mid_p].rect.height < MS_LANDSCAPE_H_THRESHOLD_PT:
-                            mid_ys = _floor_y_start_below_headers(
-                                first_y_mid,
-                                mid_ys,
-                                page_header_rows.get(mid_p, []),
-                            )
+                        _mid_sep = 5.65 if doc[mid_p].rect.height < MS_LANDSCAPE_H_THRESHOLD_PT else 3.0
+                        mid_ys = _floor_y_start_below_headers(
+                            first_y_mid,
+                            mid_ys,
+                            page_header_rows.get(mid_p, []),
+                            separator_below_header_pt=_mid_sep,
+                        )
                     mid_ye = min(doc[mid_p].rect.height - 30, _y_end_cap(doc[mid_p]))
                     mid_ye = _cap_y_end_before_headers(
                         mid_ys, mid_ye, page_header_rows.get(mid_p, [])
@@ -316,16 +404,19 @@ def find_ms_answer_regions(doc, requested_questions):
             on_last = [e for e in q_entries if e[1] == last_page]
             first_on_last = min(e[2] for e in on_last)
             last_ys = _mid_y_start(doc[last_page])
-            if doc[last_page].rect.height < MS_LANDSCAPE_H_THRESHOLD_PT:
-                last_ys = _floor_y_start_below_headers(
-                    first_on_last,
-                    last_ys,
-                    page_header_rows.get(last_page, []),
-                )
+            _last_sep = 5.65 if doc[last_page].rect.height < MS_LANDSCAPE_H_THRESHOLD_PT else 3.0
+            last_ys = _floor_y_start_below_headers(
+                first_on_last,
+                last_ys,
+                page_header_rows.get(last_page, []),
+                separator_below_header_pt=_last_sep,
+            )
+            _y_end_raw_last = y_end
             y_end = _cap_y_end_before_headers(
                 last_ys, y_end, page_header_rows.get(last_page, [])
             )
-            y_end = min(y_end, _tight_y_end(doc[last_page], last_ys, y_end))
+            _tight_gap_last = 20 if y_end < _y_end_raw_last else 32
+            y_end = min(y_end, _tight_y_end(doc[last_page], last_ys, y_end, _tight_gap_last))
             regions.append((qnum, last_page, last_ys, y_end))
 
     return regions
