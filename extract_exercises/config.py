@@ -20,13 +20,9 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 # subfolders like ``output/run_YYYYMMDD_HHMMSS/`` for bare output filenames.
 OUTPUT_DIR = PROJECT_ROOT / "output"
 
-# Parent of the project folder; exam PDF libraries live as siblings to the repo
-# (see README). Change these if your disk layout differs.
-_PROJECT_PARENT = PROJECT_ROOT.parent
-PHYSICS_EXAM_DIR = _PROJECT_PARENT / "IGCSE Physics 25" / "Previous Exams IGCSE Physics"
-COMPUTER_SCIENCE_EXAM_DIR = (
-    _PROJECT_PARENT / "IGCSE Computer Science 25" / "Previous Exams IGCSE Computer Science"
-)
+# Bundled question papers (Cambridge-style PDFs) shipped with this repo under ``exams/``.
+PHYSICS_EXAM_DIR = PROJECT_ROOT / "exams" / "physics"
+COMPUTER_SCIENCE_EXAM_DIR = PROJECT_ROOT / "exams" / "computer_science"
 
 # Maps NL/JSON subject keys to the folders above.
 EXAM_ROOT_BY_KEY = {

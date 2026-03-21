@@ -26,6 +26,7 @@ from .fonts import (
     draw_page_header_pil,
     header_band_px,
     pil_font,
+    pil_font_bold,
 )
 
 
@@ -212,15 +213,31 @@ def section_title_strip(label: str) -> Image.Image:
 
 
 def create_mcq_answer_strips(answers: dict, requested_questions: list) -> list:
-    """Return PIL image strips for MCQ answers (one strip per question)."""
+    """Return PIL image strips: bold 'Multiple Choice Answers' headline, then one row per answer."""
     scale, page_width_px, _ = scale_and_page_dims()
     found = [(q, answers[q]) for q in requested_questions if q in answers]
     if not found:
         return []
+    headline_size = max(12, int(14 * scale))
+    font_bold = pil_font_bold(headline_size)
+    head_h = int(10 * scale) + headline_size
+    headline = Image.new("RGB", (page_width_px, head_h), (255, 255, 255))
+    hdraw = ImageDraw.Draw(headline)
+    title = "Multiple Choice Answers"
+    hb = hdraw.textbbox((0, 0), title, font=font_bold)
+    th = hb[3] - hb[1]
+    left_x = int(50 * scale)
+    hdraw.text(
+        (left_x, max(0, (head_h - th) // 2)),
+        title,
+        fill=(0, 0, 0),
+        font=font_bold,
+    )
+    strips = [headline]
+
     row_h = max(1, int(20 * scale))
     font_size = max(10, int(11 * scale))
     font = pil_font(font_size)
-    strips = []
     for qnum, letter in found:
         strip = Image.new("RGB", (page_width_px, row_h), (255, 255, 255))
         draw = ImageDraw.Draw(strip)
@@ -368,7 +385,7 @@ def create_mcq_answers_pdf(
         c.drawString((width - sw) / 2, height - (42 + _shift), section_label)
         _extra = 22
     c.setFont("Helvetica-Bold", 16)
-    c.drawString(50, height - (58 + _shift + _extra), "Mark Scheme Answers")
+    c.drawString(50, height - (58 + _shift + _extra), "Multiple Choice Answers")
     c.setFont("Helvetica", 10)
     c.drawString(50, height - (78 + _shift + _extra), "Paper 2 Multiple Choice (Extended)")
 

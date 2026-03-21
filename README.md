@@ -5,7 +5,7 @@ Extract chosen questions from Cambridge-style IGCSE question papers (PDF) and la
 ## Requirements
 
 - **Python 3.10+** (3.12+ recommended)
-- **Exam PDFs on disk** for natural-language mode: the tool looks under fixed paths relative to the project parent directory (see `extract_exercises/config.py`): e.g. `../IGCSE Physics 25/Previous Exams IGCSE Physics` for Physics. Adjust `EXAM_ROOT_BY_KEY` if your layout differs.
+- **Exam PDFs** for natural-language mode: bundled under `exams/physics/` and `exams/computer_science/` (see `exams/README.md`). Override paths in `extract_exercises/config.py` if you keep papers elsewhere.
 - **xAI API key** for natural-language mode only (legacy CLI does not need it).
 
 ## Setup
@@ -72,6 +72,7 @@ run_extraction_jobs(
 |------|------|
 | `extract_exercises.py` | Thin CLI entry point |
 | `extract_exercises/` | Package: config, question detection, raster layout, mark schemes, NL resolver, pipeline |
+| `exams/physics/`, `exams/computer_science/` | Bundled question paper & mark scheme PDFs for NL mode |
 
 ## License
 

@@ -28,6 +28,31 @@ def pil_font(size_px: int) -> ImageFont.ImageFont:
     return ImageFont.load_default()
 
 
+def pil_font_bold(size_px: int) -> ImageFont.ImageFont:
+    """Bold sans-serif for section titles; falls back to ``pil_font`` if none load."""
+    candidates = [
+        "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
+        "/Library/Fonts/Arial Bold.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+        "C:\\Windows\\Fonts\\arialbd.ttf",
+    ]
+    for path in candidates:
+        if not path or not os.path.isfile(path):
+            continue
+        try:
+            return ImageFont.truetype(path, size_px)
+        except OSError:
+            continue
+    helv = "/System/Library/Fonts/Helvetica.ttc"
+    if os.path.isfile(helv):
+        try:
+            return ImageFont.truetype(helv, size_px, index=1)
+        except OSError:
+            pass
+    return pil_font(size_px)
+
+
 def draw_page_header_pil(
     img: Image.Image,
     subject_label: str,
