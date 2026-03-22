@@ -34,6 +34,7 @@ from .mark_scheme import detect_landscape_ms_crop_x, detect_portrait_ms_crop_x
 
 
 def scale_and_page_dims():
+    """Return (scale, page_width_px, page_height_px) for A4 at configured DPI."""
     scale = DPI / 72.0
     page_width_px = int(A4_WIDTH_PT * scale)
     page_height_px = int(A4_HEIGHT_PT * scale)
@@ -57,6 +58,7 @@ def insets_for_strip(y_start_pt: float, page_height_pt: float, scale: float) -> 
 
 
 def h_center_x(strip_w: int, page_w: int) -> int:
+    """Return x coordinate to horizontally center a strip of width strip_w on page_w."""
     return max(0, (page_w - strip_w) // 2)
 
 

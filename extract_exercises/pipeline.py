@@ -20,6 +20,7 @@ from .rendering import (
 
 
 def merge_pdf_files(part_paths: list[str], dest: str) -> None:
+    """Concatenate multiple PDF files into a single output PDF."""
     merged = fitz.open()
     for p in part_paths:
         src = fitz.open(p)

@@ -10,6 +10,7 @@ from .pipeline import run_extraction, run_extraction_jobs
 
 
 def _parse_question_tokens(tokens: list[str]) -> list[int]:
+    """Parse question tokens like ['1', '3-5', '7'] into [1, 3, 4, 5, 7]."""
     requested = []
     for arg in tokens:
         if "-" in arg and not arg.startswith("-"):
