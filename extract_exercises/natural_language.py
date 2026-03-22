@@ -17,11 +17,13 @@ except ImportError:
 
 
 def _load_env():
+    """Load environment variables from .env files (project root then cwd)."""
     load_dotenv(PROJECT_ROOT / ".env")
     load_dotenv(Path.cwd() / ".env")
 
 
 def _list_pdf_names(exam_root: Path):
+    """Return a sorted list of PDF filenames in the given exam directory."""
     if not exam_root.is_dir():
         return []
     return sorted(p.name for p in exam_root.glob("*.pdf"))
@@ -129,6 +131,15 @@ def resolve_natural_language(instruction: str) -> tuple[Path, dict]:
         sys.exit(1)
 
     def _one_extraction(ex: dict, idx: str) -> dict:
+        """Validate and normalize a single extraction record.
+
+        Args:
+            ex: Raw extraction dict from AI response (input_pdf, questions, mark_scheme_pdf).
+            idx: Index string for error messages (e.g., "0", "1").
+
+        Returns:
+            Normalized dict with validated input_pdf, questions (as ints), and mark_scheme_pdf.
+        """
         for key in ("input_pdf", "questions"):
             if key not in ex:
                 print(f"JSON missing {key} in extractions[{idx}]", file=sys.stderr)
