@@ -1,13 +1,13 @@
 # -*- coding: utf-8 -*-
 """Orchestrate extraction jobs and merge mark scheme output."""
 
-import sys
 from pathlib import Path
 
 import fitz
 from PIL import Image
 
 from .config import PAGE_HEADER_BY_EXAM
+from .exceptions import ExtractionError
 from .labels import page_header_label, paper_label_from_qp_path
 from .mark_scheme import detect_ms_type, find_ms_answer_regions, parse_mcq_answers
 from .questions import find_question_positions, get_question_regions
@@ -36,8 +36,7 @@ def run_extraction_jobs(jobs: list[dict], output_pdf: str, exam_key: str | None 
     All question strips are concatenated and laid out in one flow (several papers may share a page).
     """
     if not jobs:
-        print("No extraction jobs.", file=sys.stderr)
-        sys.exit(1)
+        raise ExtractionError("No extraction jobs.")
 
     page_header = page_header_label(jobs, exam_key)
     use_paper_sublabels = exam_key is not None and exam_key in PAGE_HEADER_BY_EXAM
@@ -77,8 +76,7 @@ def run_extraction_jobs(jobs: list[dict], output_pdf: str, exam_key: str | None 
         all_strips.extend(strips)
 
     if not all_strips:
-        print("No matching questions found in any paper.", file=sys.stderr)
-        sys.exit(1)
+        raise ExtractionError("No matching questions found in any paper.")
 
     print(f"\nOutput: {output_pdf}")
     layout_strips_to_pdf(all_strips, output_pdf, page_header)

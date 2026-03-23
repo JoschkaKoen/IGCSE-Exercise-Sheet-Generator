@@ -49,6 +49,23 @@ python extract_exercises.py /path/to/qp.pdf output.pdf 12-14 --ms /path/to/ms.pd
 python -m extract_exercises --help
 ```
 
+## Web UI
+
+The site is **not** started automatically—you must keep a terminal open with Uvicorn running while you use the browser.
+
+Run a local browser UI (same natural-language flow as the one-argument CLI: prompt → generated PDFs, plus an exam library page for bundled PDFs):
+
+```bash
+cd "/path/to/Exercise Sheet Generator"
+source .venv/bin/activate
+pip install -r requirements.txt
+uvicorn web.app:app --reload --host 127.0.0.1 --port 8001
+```
+
+Open [http://127.0.0.1:8001](http://127.0.0.1:8001) (use the same port as in the command). Set `XAI_API_KEY` in `.env` as for CLI natural-language mode. Jobs run in the background; the page polls until your sheet (and optional `*_answers.pdf`) is ready.
+
+**If the page does not load:** (1) Confirm the terminal shows `Uvicorn running on http://127.0.0.1:…`—if you see `Address already in use`, pick another port, e.g. `--port 8002`. (2) On many Macs, **port 8000 is already taken** (often by Docker), so use `8001` or higher instead of `8000`. (3) Use the exact URL printed by Uvicorn, including the port.
+
 **Programmatic**:
 
 ```python
@@ -72,6 +89,7 @@ run_extraction_jobs(
 |------|------|
 | `extract_exercises.py` | Thin CLI entry point |
 | `extract_exercises/` | Package: config, question detection, raster layout, mark schemes, NL resolver, pipeline |
+| `web/` | FastAPI app, templates, and static assets for the local web UI |
 | `exams/physics/`, `exams/computer_science/` | Bundled question paper & mark scheme PDFs for NL mode |
 | `fonts/lmroman10-*.otf` | Latin Modern Roman (LaTeX `lmodern` text) for raster labels; see `fonts/README.md` |
 

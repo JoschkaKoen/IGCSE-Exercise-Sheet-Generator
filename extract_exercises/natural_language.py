@@ -3,12 +3,13 @@
 
 import json
 import os
-import sys
+from collections.abc import Callable
 from pathlib import Path
 
 from dotenv import load_dotenv
 
 from .config import EXAM_ROOT_BY_KEY, PROJECT_ROOT
+from .exceptions import NaturalLanguageError
 
 try:
     from openai import OpenAI
@@ -29,17 +30,25 @@ def _list_pdf_names(exam_root: Path):
     return sorted(p.name for p in exam_root.glob("*.pdf"))
 
 
-def resolve_natural_language(instruction: str) -> tuple[Path, dict]:
+def resolve_natural_language(
+    instruction: str,
+    *,
+    on_progress: Callable[[str], None] | None = None,
+) -> tuple[Path, dict]:
     """Call AI; return (exam_root, data) with ``data[\"extractions\"]`` and ``output_pdf``."""
+
+    def emit(msg: str) -> None:
+        print(msg, flush=True)
+        if on_progress:
+            on_progress(msg)
+
     if OpenAI is None:
-        print("Install dependencies: pip install -r requirements.txt", file=sys.stderr)
-        sys.exit(1)
+        raise NaturalLanguageError("Install dependencies: pip install -r requirements.txt")
 
     _load_env()
     api_key = os.environ.get("XAI_API_KEY")
     if not api_key:
-        print("Set XAI_API_KEY in .env (next to this script or cwd).", file=sys.stderr)
-        sys.exit(1)
+        raise NaturalLanguageError("Set XAI_API_KEY in .env (next to this script or cwd).")
 
     catalogs = {}
     for key, root in EXAM_ROOT_BY_KEY.items():
@@ -48,10 +57,10 @@ def resolve_natural_language(instruction: str) -> tuple[Path, dict]:
 
     total_pdfs = sum(len(c["pdfs"]) for c in catalogs.values())
     if total_pdfs == 0:
-        print("No PDFs found in either exam folder:", file=sys.stderr)
+        lines = ["No PDFs found in either exam folder:"]
         for key, c in catalogs.items():
-            print(f"  {key}: {c['root']}", file=sys.stderr)
-        sys.exit(1)
+            lines.append(f"  {key}: {c['root']}")
+        raise NaturalLanguageError("\n".join(lines))
 
     model = os.environ.get("XAI_MODEL", "grok-4-1-fast-non-reasoning")
     client = OpenAI(api_key=api_key, base_url="https://api.x.ai/v1")
@@ -98,37 +107,35 @@ def resolve_natural_language(instruction: str) -> tuple[Path, dict]:
             **kwargs,
         )
 
+    emit("Calling language model…")
     try:
         completion = _complete(response_format={"type": "json_object"})
     except Exception:
         try:
             completion = _complete()
         except Exception as e:
-            print(f"API error ({model}): {e}", file=sys.stderr)
-            sys.exit(1)
+            raise NaturalLanguageError(f"API error ({model}): {e}") from e
 
     raw = (completion.choices[0].message.content or "").strip()
     try:
         data = json.loads(raw)
     except json.JSONDecodeError:
-        print("Model did not return valid JSON:\n", raw[:2000], file=sys.stderr)
-        sys.exit(1)
+        raise NaturalLanguageError(f"Model did not return valid JSON:\n{raw[:2000]}")
 
     for key in ("exam", "output_pdf"):
         if key not in data:
-            print(f"JSON missing key: {key}", file=sys.stderr)
-            sys.exit(1)
+            raise NaturalLanguageError(f"JSON missing key: {key}")
 
     exam_key = data["exam"]
     if exam_key not in EXAM_ROOT_BY_KEY:
-        print(f'exam must be "physics" or "computer_science"; got: {exam_key!r}', file=sys.stderr)
-        sys.exit(1)
+        raise NaturalLanguageError(
+            f'exam must be "physics" or "computer_science"; got: {exam_key!r}'
+        )
 
     exam_root = EXAM_ROOT_BY_KEY[exam_key]
     pdf_names = set(catalogs[exam_key]["pdfs"])
     if not pdf_names:
-        print(f"No PDFs available for subject {exam_key!r} under {exam_root}", file=sys.stderr)
-        sys.exit(1)
+        raise NaturalLanguageError(f"No PDFs available for subject {exam_key!r} under {exam_root}")
 
     def _one_extraction(ex: dict, idx: str) -> dict:
         """Validate and normalize a single extraction record.
@@ -142,38 +149,35 @@ def resolve_natural_language(instruction: str) -> tuple[Path, dict]:
         """
         for key in ("input_pdf", "questions"):
             if key not in ex:
-                print(f"JSON missing {key} in extractions[{idx}]", file=sys.stderr)
-                sys.exit(1)
+                raise NaturalLanguageError(f"JSON missing {key} in extractions[{idx}]")
         if ex["input_pdf"] not in pdf_names:
-            print(f'input_pdf must be listed for {exam_key}; got: {ex["input_pdf"]!r} ({idx})', file=sys.stderr)
-            sys.exit(1)
+            raise NaturalLanguageError(
+                f'input_pdf must be listed for {exam_key}; got: {ex["input_pdf"]!r} ({idx})'
+            )
         ms = ex.get("mark_scheme_pdf")
         if ms is not None and ms not in pdf_names:
-            print(f'mark_scheme_pdf must be from the list or null ({idx}); got: {ms!r}', file=sys.stderr)
-            sys.exit(1)
+            raise NaturalLanguageError(
+                f'mark_scheme_pdf must be from the list or null ({idx}); got: {ms!r}'
+            )
         qs = ex["questions"]
         if not isinstance(qs, list) or not qs:
-            print(f'"questions" must be a non-empty array ({idx}).', file=sys.stderr)
-            sys.exit(1)
+            raise NaturalLanguageError(f'"questions" must be a non-empty array ({idx}).')
         try:
             qn = [int(x) for x in qs]
         except (TypeError, ValueError):
-            print(f'"questions" must be integers ({idx}).', file=sys.stderr)
-            sys.exit(1)
+            raise NaturalLanguageError(f'"questions" must be integers ({idx}).')
         return {"input_pdf": ex["input_pdf"], "questions": qn, "mark_scheme_pdf": ms}
 
     extractions = data.get("extractions")
     if extractions is not None:
         if not isinstance(extractions, list) or not extractions:
-            print('"extractions" must be a non-empty array when present.', file=sys.stderr)
-            sys.exit(1)
+            raise NaturalLanguageError('"extractions" must be a non-empty array when present.')
         normalized = [_one_extraction(ex, str(i)) for i, ex in enumerate(extractions)]
         return exam_root, {"exam": exam_key, "output_pdf": data["output_pdf"], "extractions": normalized}
 
     for key in ("input_pdf", "questions"):
         if key not in data:
-            print(f"JSON missing key: {key}", file=sys.stderr)
-            sys.exit(1)
+            raise NaturalLanguageError(f"JSON missing key: {key}")
 
     single = _one_extraction(
         {

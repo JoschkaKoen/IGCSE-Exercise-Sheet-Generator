@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full space-root">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#01040e" />
+  <title>{% block title %}Exercise Sheet Generator{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Sora:wght@500;600;700&display=swap" rel="stylesheet" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            display: ['Sora', 'system-ui', 'sans-serif'],
+            sans: ['Outfit', 'system-ui', 'sans-serif'],
+          },
+          colors: {
+            space: {
+              void: '#01040e',
+              deep: '#0a1120',
+              lift: '#172a4d',
+              mist: '#334155',
+            },
+          },
+        },
+      },
+    };
+  </script>
+  <link rel="stylesheet" href="/static/app.css" />
+</head>
+<body class="min-h-full font-sans text-slate-200 antialiased space-bg">
+  <div class="space-stars" aria-hidden="true"></div>
+  <div class="z-content flex min-h-full flex-col">
+    <header class="border-b border-white/5 bg-space-deep/70 backdrop-blur-xl">
+      <div class="mx-auto flex max-w-5xl items-center justify-between gap-4 px-4 py-4 sm:px-6">
+        <a href="/" class="font-display text-lg font-semibold tracking-tight text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/80 focus-visible:ring-offset-2 focus-visible:ring-offset-space-void rounded-lg">
+          <span class="bg-gradient-to-r from-cyan-300 to-blue-400 bg-clip-text text-transparent">IGCSE Exercise Sheets</span>
+        </a>
+        <nav class="flex items-center gap-1 rounded-full border border-white/10 bg-white/5 p-1 backdrop-blur-sm" aria-label="Main">
+          <a href="/" class="rounded-full px-4 py-2 text-sm font-medium text-slate-300 transition hover:bg-white/10 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/60">Generate</a>
+          <a href="/library" class="rounded-full px-4 py-2 text-sm font-medium text-slate-300 transition hover:bg-white/10 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/60">Library</a>
+        </nav>
+      </div>
+    </header>
+    <main class="mx-auto w-full max-w-5xl flex-1 px-4 py-10 sm:px-6">
+      {% block content %}{% endblock %}
+    </main>
+    <footer class="mx-auto max-w-5xl px-4 pb-10 text-center text-xs text-slate-500 sm:px-6">
+      Runs locally on your machine. Natural-language extraction uses
+      <code class="rounded-md border border-white/10 bg-white/5 px-1.5 py-0.5 font-mono text-[0.7rem] text-cyan-200/90">XAI_API_KEY</code>
+      from your <code class="rounded-md border border-white/10 bg-white/5 px-1 py-0.5 font-mono text-[0.7rem] text-cyan-200/90">.env</code> file.
+    </footer>
+  </div>
+</body>
+</html>

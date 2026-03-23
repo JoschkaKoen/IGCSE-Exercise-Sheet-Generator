@@ -4,6 +4,7 @@
 import argparse
 import sys
 
+from .exceptions import ExtractionUserError
 from .natural_language import resolve_natural_language
 from .output_paths import resolve_output_path
 from .pipeline import run_extraction, run_extraction_jobs
@@ -50,36 +51,40 @@ def main():
     args = parser.parse_args()
     parts = args.parts
 
-    if len(parts) == 1:
-        if args.mark_scheme:
-            parser.error("--ms applies only to legacy mode (three or more arguments).")
-        instruction = parts[0]
-        exam_root, data = resolve_natural_language(instruction)
-        print(f"Exam folder: {exam_root} ({data.get('exam', '')})")
-        print(f"Papers in this run: {len(data['extractions'])}")
+    try:
+        if len(parts) == 1:
+            if args.mark_scheme:
+                parser.error("--ms applies only to legacy mode (three or more arguments).")
+            instruction = parts[0]
+            exam_root, data = resolve_natural_language(instruction)
+            print(f"Exam folder: {exam_root} ({data.get('exam', '')})")
+            print(f"Papers in this run: {len(data['extractions'])}")
 
-        jobs = []
-        for ex in data["extractions"]:
-            jobs.append(
-                {
-                    "input_pdf": str(exam_root / ex["input_pdf"]),
-                    "questions": ex["questions"],
-                    "mark_scheme_pdf": str(exam_root / ex["mark_scheme_pdf"])
-                    if ex.get("mark_scheme_pdf")
-                    else None,
-                }
+            jobs = []
+            for ex in data["extractions"]:
+                jobs.append(
+                    {
+                        "input_pdf": str(exam_root / ex["input_pdf"]),
+                        "questions": ex["questions"],
+                        "mark_scheme_pdf": str(exam_root / ex["mark_scheme_pdf"])
+                        if ex.get("mark_scheme_pdf")
+                        else None,
+                    }
+                )
+            output_pdf = str(resolve_output_path(data["output_pdf"]))
+            run_extraction_jobs(jobs, output_pdf, exam_key=data.get("exam"))
+            return
+
+        if len(parts) < 3:
+            parser.error(
+                "Pass one quoted sentence describing what to extract, "
+                "or at least: input_pdf output_pdf QUESTION [QUESTION ...]"
             )
-        output_pdf = str(resolve_output_path(data["output_pdf"]))
-        run_extraction_jobs(jobs, output_pdf, exam_key=data.get("exam"))
-        return
 
-    if len(parts) < 3:
-        parser.error(
-            "Pass one quoted sentence describing what to extract, "
-            "or at least: input_pdf output_pdf QUESTION [QUESTION ...]"
-        )
-
-    input_pdf = parts[0]
-    output_pdf = str(resolve_output_path(parts[1]))
-    requested = _parse_question_tokens(parts[2:])
-    run_extraction(input_pdf, output_pdf, requested, args.mark_scheme)
+        input_pdf = parts[0]
+        output_pdf = str(resolve_output_path(parts[1]))
+        requested = _parse_question_tokens(parts[2:])
+        run_extraction(input_pdf, output_pdf, requested, args.mark_scheme)
+    except ExtractionUserError as e:
+        print(str(e), file=sys.stderr)
+        sys.exit(1)

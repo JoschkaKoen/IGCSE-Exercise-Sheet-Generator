@@ -1,0 +1,130 @@
+{% extends "base.html" %}
+{% block title %}Exam library — IGCSE Exercise Sheet Generator{% endblock %}
+{% block content %}
+<section>
+  <div class="flex items-center gap-3">
+    <div class="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-500/20 to-purple-600/20 ring-1 ring-violet-500/30">
+      <svg class="h-6 w-6 text-violet-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/>
+      </svg>
+    </div>
+    <div>
+      <p class="text-xs font-medium uppercase tracking-[0.2em] text-violet-400/80">Browse</p>
+      <h1 class="font-display text-2xl font-semibold tracking-tight text-white sm:text-3xl">
+        Exam library
+      </h1>
+    </div>
+  </div>
+  
+  <p class="mt-4 max-w-2xl text-slate-400 leading-relaxed">
+    Cambridge IGCSE question papers and mark schemes bundled with this project. Download individual PDFs or use the generator to extract specific questions.
+  </p>
+
+  <div class="mt-10 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+    <div class="flex rounded-2xl border border-white/10 bg-white/5 p-1 backdrop-blur-sm" role="tablist" aria-label="Subject">
+      <button type="button" id="tab-physics" class="tab-btn rounded-xl px-5 py-2.5 text-sm font-medium tab-active" data-subject="physics">
+        <span class="flex items-center gap-2">
+          <span class="h-2 w-2 rounded-full bg-cyan-400"></span>
+          Physics
+        </span>
+      </button>
+      <button type="button" id="tab-cs" class="tab-btn rounded-xl px-5 py-2.5 text-sm font-medium tab-inactive" data-subject="computer_science">
+        <span class="flex items-center gap-2">
+          <span class="h-2 w-2 rounded-full bg-violet-400"></span>
+          Computer Science
+        </span>
+      </button>
+    </div>
+    <label class="flex flex-1 items-center gap-3 rounded-2xl border border-white/10 bg-slate-950/40 px-4 py-2.5 sm:max-w-sm">
+      <span class="sr-only">Search files</span>
+      <svg class="h-5 w-5 shrink-0 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+      <input type="search" id="lib-search" placeholder="Filter by filename…" class="w-full bg-transparent text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none" autocomplete="off" />
+    </label>
+  </div>
+
+  <div id="grid-physics" class="lib-grid mt-8 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+    {% for row in library['physics'] %}
+    <article class="lib-card flex items-start gap-3 rounded-2xl border border-white/10 bg-gradient-to-b from-white/[0.07] to-white/[0.02] p-4 shadow-lg shadow-black/20 backdrop-blur-sm transition hover:border-cyan-500/25 hover:shadow-cyan-500/5" data-name="{{ row.name | e }}">
+      <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-cyan-500/10">
+        <svg class="h-4 w-4 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+        </svg>
+      </div>
+      <div class="min-w-0 flex-1">
+        <h2 class="break-words font-mono text-xs font-medium leading-snug text-slate-300" title="{{ row.name | e }}">{{ row.name }}</h2>
+      </div>
+      <a href="{{ row.download_url }}" class="shrink-0 rounded-xl p-2 text-cyan-400 transition hover:bg-cyan-500/15 hover:text-cyan-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50" aria-label="Download {{ row.name | e }}">
+        <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+      </a>
+    </article>
+    {% else %}
+    <p class="col-span-full rounded-2xl border border-dashed border-white/10 py-16 text-center text-slate-500">No PDFs in this folder.</p>
+    {% endfor %}
+  </div>
+
+  <div id="grid-cs" class="lib-grid mt-8 hidden grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+    {% for row in library['computer_science'] %}
+    <article class="lib-card flex items-start gap-3 rounded-2xl border border-white/10 bg-gradient-to-b from-white/[0.07] to-white/[0.02] p-4 shadow-lg shadow-black/20 backdrop-blur-sm transition hover:border-violet-500/25 hover:shadow-violet-500/5" data-name="{{ row.name | e }}">
+      <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-violet-500/10">
+        <svg class="h-4 w-4 text-violet-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+        </svg>
+      </div>
+      <div class="min-w-0 flex-1">
+        <h2 class="break-words font-mono text-xs font-medium leading-snug text-slate-300" title="{{ row.name | e }}">{{ row.name }}</h2>
+      </div>
+      <a href="{{ row.download_url }}" class="shrink-0 rounded-xl p-2 text-violet-400 transition hover:bg-violet-500/15 hover:text-violet-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-400/50" aria-label="Download {{ row.name | e }}">
+        <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+      </a>
+    </article>
+    {% else %}
+    <p class="col-span-full rounded-2xl border border-dashed border-white/10 py-16 text-center text-slate-500">No PDFs in this folder.</p>
+    {% endfor %}
+  </div>
+</section>
+
+<script>
+(function () {
+  var tabPhysics = document.getElementById('tab-physics');
+  var tabCs = document.getElementById('tab-cs');
+  var gridPhysics = document.getElementById('grid-physics');
+  var gridCs = document.getElementById('grid-cs');
+  var search = document.getElementById('lib-search');
+  var activeSubject = 'physics';
+
+  function setTab(subject) {
+    activeSubject = subject;
+    if (subject === 'physics') {
+      tabPhysics.classList.add('tab-active');
+      tabPhysics.classList.remove('tab-inactive');
+      tabCs.classList.remove('tab-active');
+      tabCs.classList.add('tab-inactive');
+      gridPhysics.classList.remove('hidden');
+      gridCs.classList.add('hidden');
+    } else {
+      tabCs.classList.add('tab-active');
+      tabCs.classList.remove('tab-inactive');
+      tabPhysics.classList.remove('tab-active');
+      tabPhysics.classList.add('tab-inactive');
+      gridCs.classList.remove('hidden');
+      gridPhysics.classList.add('hidden');
+    }
+    filterCards();
+  }
+
+  function filterCards() {
+    var q = (search.value || '').toLowerCase().trim();
+    var grid = activeSubject === 'physics' ? gridPhysics : gridCs;
+    var cards = grid.querySelectorAll('article.lib-card');
+    cards.forEach(function (card) {
+      var name = (card.getAttribute('data-name') || '').toLowerCase();
+      card.classList.toggle('hidden', q.length > 0 && name.indexOf(q) === -1);
+    });
+  }
+
+  tabPhysics.addEventListener('click', function () { setTab('physics'); });
+  tabCs.addEventListener('click', function () { setTab('computer_science'); });
+  search.addEventListener('input', filterCards);
+})();
+</script>
+{% endblock %}
