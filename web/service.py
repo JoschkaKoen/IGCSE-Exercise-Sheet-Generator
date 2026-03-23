@@ -7,7 +7,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from extract_exercises.natural_language import resolve_natural_language
-from extract_exercises.output_paths import resolve_output_path
+from extract_exercises.output_paths import resolve_output_path_fresh
 from extract_exercises.pipeline import run_extraction_jobs
 
 
@@ -47,7 +47,7 @@ def run_nl_prompt(
     emit("Preparing output and extracting PDFs…")
 
     def extract_phase() -> str:
-        output_pdf = resolve_output_path(data["output_pdf"])
+        output_pdf = resolve_output_path_fresh(data["output_pdf"])
         output_str = str(output_pdf)
         run_extraction_jobs(jobs, output_str, exam_key=data.get("exam"))
         return output_str
