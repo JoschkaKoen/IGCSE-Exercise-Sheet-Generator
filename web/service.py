@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from itertools import groupby
 from pathlib import Path
+from typing import Any
 
 from extract_exercises.natural_language import resolve_natural_language
 from extract_exercises.output_paths import resolve_output_path_fresh
@@ -74,20 +76,58 @@ def run_nl_prompt_logged(
     return run_nl_prompt(prompt, on_progress=on_line)
 
 
-def list_library_pdfs() -> dict[str, list[dict[str, str]]]:
-    """Scan bundled exam dirs; return { subject_key: [{ name, download_url }, ...] }."""
+def _library_grouped_blocks(subject_key: str, names: list[str]) -> list[dict[str, Any]]:
+    """
+    Group sorted filenames by year (descending in ``names`` order) and session M/W/S.
+
+    ``itertools.groupby`` preserves order; Jinja's ``groupby`` filter re-sorts keys and must not be used.
+    """
     from urllib.parse import quote
 
-    from extract_exercises.config import EXAM_ROOT_BY_KEY
+    from extract_exercises.labels import (
+        library_pdf_display_name,
+        library_pdf_group_meta,
+    )
 
-    out: dict[str, list[dict[str, str]]] = {}
+    rows: list[dict[str, str]] = []
+    for n in names:
+        meta = library_pdf_group_meta(n)
+        rows.append(
+            {
+                "name": n,
+                "display_name": library_pdf_display_name(n),
+                "download_url": f"/api/library/{subject_key}/{quote(n, safe='')}",
+                **meta,
+            }
+        )
+    blocks: list[dict[str, Any]] = []
+    for _year_key, year_iter in groupby(rows, key=lambda r: r["group_year"]):
+        year_rows = list(year_iter)
+        sessions: list[dict[str, Any]] = []
+        for _sess_key, sess_iter in groupby(year_rows, key=lambda r: r["group_session"]):
+            sess_rows = list(sess_iter)
+            sessions.append(
+                {
+                    "session": sess_rows[0]["group_session"],
+                    "session_heading": sess_rows[0]["session_heading"],
+                    "session_title": sess_rows[0]["session_title"],
+                    "rows": sess_rows,
+                }
+            )
+        blocks.append({"year": year_rows[0]["group_year"], "sessions": sessions})
+    return blocks
+
+
+def list_library_pdfs() -> dict[str, list[dict[str, Any]]]:
+    """Scan bundled exam dirs; nested year → session → file rows for the library page."""
+    from extract_exercises.config import EXAM_ROOT_BY_KEY
+    from extract_exercises.labels import library_pdf_sort_key
+
+    out: dict[str, list[dict[str, Any]]] = {}
     for key, root in EXAM_ROOT_BY_KEY.items():
         if not root.is_dir():
             out[key] = []
             continue
-        names = sorted(p.name for p in root.glob("*.pdf"))
-        out[key] = [
-            {"name": n, "download_url": f"/api/library/{key}/{quote(n, safe='')}"}
-            for n in names
-        ]
+        names = sorted((p.name for p in root.glob("*.pdf")), key=library_pdf_sort_key)
+        out[key] = _library_grouped_blocks(key, names)
     return out
