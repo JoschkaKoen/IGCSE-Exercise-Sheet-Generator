@@ -205,14 +205,29 @@ def _collect_header_rows(doc, answer_pages):
     return result
 
 
-def _cap_y_end_before_headers(y_start, y_end, header_rows_for_page):
+def _cap_y_end_before_headers(y_start, y_end, header_rows_for_page, page=None):
     """Return y_end capped just before the first header row that lies inside
     (y_start, y_end).  The top-of-page header (y_start is already set to skip
     it) is never a problem; only mid-page repeated headers matter.
+
+    When *page* is supplied, also scans for the wide horizontal line that forms
+    the header's top cell border (a drawing, not text).  That border typically
+    sits 3–8 pt above the 'Question' text and must be excluded from the strip,
+    otherwise it appears as an orphaned line below the last answer row.
     """
     for h_top, _h_bot in header_rows_for_page:
         if y_start < h_top < y_end:
-            return h_top - 2
+            cap = h_top - 2
+            if page is not None:
+                for d in page.get_drawings():
+                    r = d["rect"]
+                    dr = _norm_bbox(page, (r.x0, r.y0, r.x1, r.y1))
+                    if dr[2] - dr[0] < 50:          # skip narrow elements
+                        continue
+                    # Wide drawing whose bottom sits just above the header text
+                    if dr[3] <= h_top and dr[3] > h_top - 15:
+                        cap = min(cap, dr[1] - 2)
+            return cap
     return y_end
 
 
@@ -238,19 +253,20 @@ def _floor_y_start_below_headers(first_line_y, candidate_y_start, header_rows_fo
 
 
 def _tight_y_end(page, y_start, y_end_max, trailing_gap_pt: float = 20):
-    """Return y-bottom of the last visible text line on *page* that falls inside
-    (y_start, y_end_max), plus a small trailing margin.
+    """Return the bottom of all visible content on *page* inside (y_start, y_end_max).
 
-    This lets us trim the empty whitespace that appears when a question ends well
-    before the footer — e.g. Q10 whose last answer is at y≈281 pt but whose
-    computed y_end would otherwise reach the 540 pt footer cap, creating ~260 pt
-    of blank space below the last answer row.
+    Scans both text lines and drawn elements (table cell borders are drawn paths,
+    not text).  Whichever is furthest down determines the cut point:
+
+    * If a drawing (width ≥ 50 pt) is the bottommost element, return drawing_y + 5
+      (the border itself is the last thing; no extra gap needed).
+    * Otherwise return last_text_y + ``trailing_gap_pt`` so closing cell borders
+      drawn ~20–30 pt below the last text row are still captured.
 
     ``trailing_gap_pt`` should be 20 when a header-cap has already been applied
-    (safe: won't reach the next section's border) and 32 when no cap was active
-    (needed so Q3-style closing borders ≈30 pt below the last text are captured).
+    and 32 when no cap was active.
     """
-    last_y = None
+    last_text_y = None
     for b in page.get_text("dict")["blocks"]:
         if b["type"] != 0:
             continue
@@ -261,11 +277,30 @@ def _tight_y_end(page, y_start, y_end_max, trailing_gap_pt: float = 20):
             if nx0 < 55 or nx0 > 810:
                 continue
             t = "".join(s["text"] for s in line["spans"]).strip()
-            if t and (last_y is None or ny1 > last_y):
-                last_y = ny1
-    if last_y is None:
+            if t and (last_text_y is None or ny1 > last_text_y):
+                last_text_y = ny1
+
+    # Extend to the bottom of wide drawn elements (horizontal table borders).
+    last_drawing_y = None
+    for d in page.get_drawings():
+        r = d["rect"]
+        dr = _norm_bbox(page, (r.x0, r.y0, r.x1, r.y1))
+        if dr[2] - dr[0] < 50:          # skip narrow rules / dots
+            continue
+        if dr[3] <= y_start or dr[3] >= y_end_max:
+            continue
+        if last_drawing_y is None or dr[3] > last_drawing_y:
+            last_drawing_y = dr[3]
+
+    if last_text_y is None and last_drawing_y is None:
         return y_end_max
-    return last_y + trailing_gap_pt  # trailing gap so the last cell-border line isn't clipped
+
+    # Use whichever is bottommost.
+    if last_drawing_y is not None and (
+        last_text_y is None or last_drawing_y > last_text_y + 5
+    ):
+        return last_drawing_y + 5   # drawing is the true bottom; tiny gap only
+    return (last_text_y or 0) + trailing_gap_pt
 
 
 def find_ms_answer_regions(doc, requested_questions):
@@ -363,7 +398,7 @@ def find_ms_answer_regions(doc, requested_questions):
             # For single-page questions y_start is the correct lower bound.
             _y_end_raw = y_end
             y_end = _cap_y_end_before_headers(
-                y_start, y_end, page_header_rows.get(last_page, [])
+                y_start, y_end, page_header_rows.get(last_page, []), doc[last_page]
             )
             # When a header cap fired the trimmed region is already close to the
             # next header; use a small trailing gap so the header's own top border
@@ -375,11 +410,15 @@ def find_ms_answer_regions(doc, requested_questions):
             regions.append((qnum, first_page, y_start, y_end))
         else:
             first_y_end = min(doc[first_page].rect.height - 30, _y_end_cap(doc[first_page]))
-            # Cap first-page y_end (repeated header may appear after the first entry).
+            # Cap first-page y_end if a repeated column-header row appears below the
+            # question's first entry (prevents including the next section's header).
             _first_y_end_raw = first_y_end
             first_y_end = _cap_y_end_before_headers(
-                y_start, first_y_end, page_header_rows.get(first_page, [])
+                y_start, first_y_end, page_header_rows.get(first_page, []), doc[first_page]
             )
+            # _tight_y_end is drawing-aware: it uses drawn table borders as the
+            # true bottom edge, so it correctly trims trailing whitespace while still
+            # including the table's closing border line.
             _tight_gap_first = 20 if first_y_end < _first_y_end_raw else 32
             first_y_end = min(first_y_end, _tight_y_end(doc[first_page], y_start, first_y_end, _tight_gap_first))
             regions.append((qnum, first_page, y_start, first_y_end))
@@ -398,7 +437,7 @@ def find_ms_answer_regions(doc, requested_questions):
                         )
                     mid_ye = min(doc[mid_p].rect.height - 30, _y_end_cap(doc[mid_p]))
                     mid_ye = _cap_y_end_before_headers(
-                        mid_ys, mid_ye, page_header_rows.get(mid_p, [])
+                        mid_ys, mid_ye, page_header_rows.get(mid_p, []), doc[mid_p]
                     )
                     regions.append((qnum, mid_p, mid_ys, mid_ye))
             on_last = [e for e in q_entries if e[1] == last_page]
@@ -413,7 +452,7 @@ def find_ms_answer_regions(doc, requested_questions):
             )
             _y_end_raw_last = y_end
             y_end = _cap_y_end_before_headers(
-                last_ys, y_end, page_header_rows.get(last_page, [])
+                last_ys, y_end, page_header_rows.get(last_page, []), doc[last_page]
             )
             _tight_gap_last = 20 if y_end < _y_end_raw_last else 32
             y_end = min(y_end, _tight_y_end(doc[last_page], last_ys, y_end, _tight_gap_last))

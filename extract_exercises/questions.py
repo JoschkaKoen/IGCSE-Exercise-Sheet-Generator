@@ -36,8 +36,15 @@ def find_question_positions(doc):
                 if font_size < 9 or font_size > 13:
                     continue
 
-                if re.match(r"^\d{1,2}$", text):
-                    qnum = int(text)
+                # Bare standalone number ("9") — accepted at any y position.
+                # Number leading the first line of a question ("10 A shop …") — only
+                # accepted near the top of the page; mid-page inline numbers (e.g.
+                # "28 and 35 students…" inside a question body) are false positives.
+                bare = re.match(r"^\d{1,2}$", text)
+                inline = (not bare) and y0 <= MARGIN_TOP + 80 and re.match(r"^(\d{1,2})\s", text)
+                m = bare or inline
+                if m:
+                    qnum = int(re.match(r"^(\d{1,2})", text).group(1))
                     if 1 <= qnum <= 40 and qnum not in seen:
                         seen.add(qnum)
                         positions.append((qnum, page_idx, y0))
